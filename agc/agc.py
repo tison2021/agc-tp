@@ -19,16 +19,19 @@ import os
 import gzip
 import statistics
 from collections import Counter
+import numpy as np
+import nwalign3 as nw
+
 # https://github.com/briney/nwalign3
 # ftp://ftp.ncbi.nih.gov/blast/matrices/
 import nwalign3 as nw
 
-__author__ = "Your Name"
-__copyright__ = "Universite Paris Diderot"
-__credits__ = ["Your Name"]
+__author__ = "Maxime TISON"
+__copyright__ = "Universite de Paris"
+__credits__ = ["Maxime TISON"]
 __license__ = "GPL"
 __version__ = "1.0.0"
-__maintainer__ = "Your Name"
+__maintainer__ = "Maxime TISON"
 __email__ = "your@email.fr"
 __status__ = "Developpement"
 
@@ -70,11 +73,28 @@ def get_arguments():
     return parser.parse_args()
 
 def read_fasta(amplicon_file, minseqlen):
-    pass
+    with gzip.open(amplicon_file, "rt") as  monfich:
+        seq = ""
+        for line in monfich:
+            if line.startswith(">"):
+                if len(seq) > minseqlen:
+                    yield seq
+                seq = ""
+            else:
+                seq += line[:-1]
+        yield seq
 
 
 def dereplication_fulllength(amplicon_file, minseqlen, mincount):
-    pass
+    list_read = [read for read in read_fasta(amplicon_file, minseqlen)]
+    set_read = list(set(list_read))
+    count_read = []
+    for i in range(0, len(set_read), 1):
+        if list_read.count(set_read[i]) >= mincount:
+            count_read.append([set_read[i], list_read.count(set_read[i])])
+    count_read.sort(key= lambda x: x[1], reverse=True)
+    for i in range(0, len(count_read), 1):
+        yield(count_read[i])
 
 
 def get_unique(ids):
@@ -110,18 +130,68 @@ def get_identity(alignment_list):
             id_nu += 1
     return round(100.0 * id_nu / len(alignment_list[0]), 2)
 
+def get_unique_kmer(kmer_dict, sequence, id_seq, kmer_size):
+    for kmer in cut_kmer(sequence, kmer_size):
+        if kmer in kmer_dict:
+            if id_seq in kmer_dict[kmer]:
+                continue
+            kmer_dict[kmer].append(id_seq)
+        else:
+            kmer_dict[kmer] = [id_seq]
+    return kmer_dict
+
+
+def search_mates(kmer_dict, sequence, kmer_size):
+    kmer_list = list(cut_kmer(sequence, kmer_size))
+    id_seqs = [id for kmer in kmer_list if kmer in kmer_dict for id in kmer_dict[kmer]]
+    best_mate = Counter(id_seqs).most_common(2)
+    return [best_id[0] for best_id in best_mate]
+
+
+def detect_chimera(perc_identity_matrix):
+    seq_similar = []
+    list_std =[np.std(elem) for elem in perc_identity_matrix]
+    mean_std = statistics.mean(list_std)
+    for i in range(0, len(perc_identity_matrix), 1):
+        if perc_identity_matrix[i][0] > perc_identity_matrix[i][1]:
+            seq_similar.append(0)
+        else:
+            seq_similar.append(1)
+    if mean_std > 5:
+        if seq_similar.count(0) >= 1 and seq_similar.count(1) >= 1:
+            return(True)
+        else:
+            return(False)
+    else:
+	    return(False)
+
 def chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
     pass
 
 def abundance_greedy_clustering(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
-    pass
+    match = os.path.abspath(os.path.join(os.path.dirname(__file__),"MATCH"))
+    seq_len = list(chimera_removal(amplicon_file, minseqlen, mincount, chunk_size, kmer_size))
+    OTU_list = [seq_len[0]]
+    
+    for elem in seq_len:
+        for otu in OTU_list:
+            alignment_list = nw.global_align(otu[0], elem[0], gap_open=-1,
+                                             gap_extend=-1, matrix= match)
+            
+            if get_identity(alignment_list) < 97:
+                OTU_list.append(elem)
+    return(OTU_list)
+
 
 def fill(text, width=80):
     """Split text with a line return to respect fasta format"""
     return os.linesep.join(text[i:i+width] for i in range(0, len(text), width))
 
 def write_OTU(OTU_list, output_file):
-    pass
+    with open(output_file, 'wt') as my_out_file:
+        for i, sequence in enumerate(OTU_list):
+            my_out_file.write(f">OTU_{i+1} occurrence:{sequence[1]}\n")
+            my_out_file.write(fill(sequence[0])+"\n")
 
 #==============================================================
 # Main program
