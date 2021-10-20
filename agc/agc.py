@@ -20,7 +20,6 @@ import gzip
 import statistics
 from collections import Counter
 import numpy as np
-import nwalign3 as nw
 
 # https://github.com/briney/nwalign3
 # ftp://ftp.ncbi.nih.gov/blast/matrices/
